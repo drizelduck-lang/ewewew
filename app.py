@@ -125,69 +125,71 @@ def visualize_leaf_features(features, size=(512, 512)):
     img = Image.new("RGB", size, (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
-    # Define center and leaf boundary
-    center_x, center_y = w // 2, h // 2
-    leaf_width = w * 0.8
-    leaf_height = h * 0.95
+    cx, cy = w // 2, h * 0.95  # leaf base near bottom center
+    leaf_length = h * 0.8
+    leaf_width = w * 0.45
 
+    # Helper: elliptical leaf boundary
     def in_leaf(x, y):
-        """Check if point lies within elliptical leaf boundary"""
-        nx = (x - center_x) / (leaf_width / 2)
-        ny = (y - center_y) / (leaf_height / 2)
+        nx = (x - cx) / leaf_width
+        ny = (y - (cy - leaf_length / 2)) / (leaf_length / 2)
         return nx**2 + ny**2 <= 1.0
 
-    # Map feature values to structural parameters
-    junctions = int(np.interp(features["junctions"], [460, 6365], [40, 300]))
-    endpoints = int(np.interp(features["endpoints"], [1876, 8642], [60, 350]))
-    fractality = int(np.interp(features["fractal_dim"], [1.295, 1.68], [2, 6]))
-    spread = np.interp(features["avg_distance"], [1.1752, 1.2114], [20, 80])
-    angle_var = np.interp(features["avg_angle"], [0.4588, 31.9622], [5, 45])
-    thickness = int(np.interp(features["fft_energy"], 
-                              [9.35e7, 3.79e8], [1, 4]))
+    # Map features to vein parameters
+    n_secondary = int(np.interp(features["junctions"], [460, 6365], [5, 16]))
+    n_subveins = int(np.interp(features["endpoints"], [1876, 8642], [2, 7]))
+    fractality = np.interp(features["fractal_dim"], [1.295, 1.68], [0.3, 1.2])
+    angle_spread = np.interp(features["avg_angle"], [0.4588, 31.9622], [10, 55])
+    vein_length_scale = np.interp(features["avg_distance"], [1.1752, 1.2114], [0.5, 1.2])
+    thickness = int(np.interp(features["fft_energy"], [9.35e7, 3.79e8], [1, 4]))
 
-    # Draw main midrib (stem)
-    mid_x = w // 2
-    draw.line([(mid_x, h * 0.1), (mid_x, h * 0.9)], fill=(20, 100, 40), width=thickness + 1)
+    # --- Draw midrib ---
+    midrib_top = cy - leaf_length
+    draw.line([(cx, cy), (cx, midrib_top)], fill=(30, 90, 40), width=thickness + 1)
 
-    # Start branching from central vein
-    nodes = [(mid_x, h * 0.5, -90)]
-    total_drawn = 0
+    # --- Draw symmetric secondary veins ---
+    for i in range(1, n_secondary + 1):
+        rel_y = cy - (leaf_length / (n_secondary + 1)) * i
+        length = (leaf_width * 0.8) * (1 - i / (n_secondary + 2)) * vein_length_scale
+        base_angle = angle_spread * (1 + fractality * 0.3)
+        for side in [-1, 1]:
+            angle = base_angle * side
+            x2 = cx + math.cos(math.radians(angle)) * length * side
+            y2 = rel_y - math.sin(math.radians(angle)) * length * 0.6
+            draw.line([(cx, rel_y), (x2, y2)], fill=(20, 110, 40), width=thickness)
+            
+            # --- Draw sub-veins (fine veins off the secondary) ---
+            for j in range(n_subveins):
+                sub_len = length * (0.3 + 0.2 * random.random())
+                sub_angle = angle + side * random.uniform(10, 35) * fractality
+                x3 = x2 + math.cos(math.radians(sub_angle)) * sub_len
+                y3 = y2 - math.sin(math.radians(sub_angle)) * sub_len * 0.8
+                if in_leaf(x3, y3):
+                    draw.line([(x2, y2), (x3, y3)], fill=(25, 130, 50), width=max(1, thickness - 1))
 
-    while nodes and total_drawn < junctions:
-        x, y, base_angle = nodes.pop(0)
-        branches = random.randint(1, fractality)
-        for _ in range(branches):
-            # Adjust angle and length with avg_angle and avg_distance
-            angle = base_angle + random.uniform(-angle_var, angle_var)
-            dist = random.uniform(spread * 0.5, spread * 1.5)
-            x2 = x + dist * math.cos(math.radians(angle))
-            y2 = y + dist * math.sin(math.radians(angle))
-
-            if in_leaf(x2, y2):
-                color = (20 + random.randint(-10, 10), 120, 40 + random.randint(-10, 10))
-                draw.line([(x, y), (x2, y2)], fill=color, width=random.randint(1, thickness + 1))
-                if total_drawn < endpoints:
-                    nodes.append((x2, y2, angle + random.uniform(-10, 10)))
-                total_drawn += 1
-
-    # Optional: add light texture based on FFT mean
-    noise_strength = np.interp(features["fft_mean"], [5.24, 5.76], [0.02, 0.08])
+    # --- Add light vein texture (FFT mean) ---
+    noise_strength = np.interp(features["fft_mean"], [5.24, 5.76], [0.01, 0.05])
     pixels = img.load()
-    for i in range(0, w, 2):
-        for j in range(0, h, 2):
+    for i in range(0, w, 3):
+        for j in range(0, h, 3):
             if in_leaf(i, j) and random.random() < noise_strength:
                 r, g, b = pixels[i, j]
-                pixels[i, j] = (max(0, r - 10), min(255, g + 10), max(0, b - 10))
+                pixels[i, j] = (r - 10 if r > 20 else r,
+                                min(255, g + 10),
+                                b - 10 if b > 20 else b)
 
-    # Optional: add leaf contour for realism
-    contour_color = (25, 80, 25)
-    for angle in range(0, 360, 1):
-        x = center_x + (leaf_width / 2) * math.cos(math.radians(angle))
-        y = center_y + (leaf_height / 2) * math.sin(math.radians(angle))
+    # --- Draw outline of leaf contour ---
+    contour_color = (20, 80, 30)
+    steps = 360
+    for t in range(steps):
+        theta = math.radians(t)
+        x = cx + leaf_width * math.cos(theta)
+        y = (cy - leaf_length / 2) + (leaf_length / 2) * math.sin(theta)
         if 0 <= x < w and 0 <= y < h:
             img.putpixel((int(x), int(y)), contour_color)
 
     return img
+
 
 # ==========================================================
 # LEAF ANALYSIS FUNCTION
