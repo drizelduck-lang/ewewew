@@ -1,20 +1,26 @@
-# ==========================================================
-# 1. Imports
-# ==========================================================
-import os, json, hashlib, hmac, random, numpy as np
+import os
+import json
+import hashlib
+import hmac
+import random
+import numpy as np
 from pathlib import Path
-from flask import Flask, request, render_template, redirect, url_for
+from flask import Flask, request, render_template, redirect, url_for, send_from_directory
 from werkzeug.utils import secure_filename
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+# Matplotlib backend configuration for server-side execution
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
+
+# New imports from your script
 import cv2
 from skimage import filters, morphology
 from scipy import ndimage as ndi
 
 # ==========================================================
-# 2. Config / Paths
+# CONFIGURATION
 # ==========================================================
 DATABASE_FILE = "working/hybrid_biohash_records.json"
 UPLOAD_FOLDER = "uploads/"
@@ -26,13 +32,15 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['LEAF_VISUALS_DIR'] = LEAF_VISUALS_DIR
 app.config['ANALYSIS_VISUALS_DIR'] = ANALYSIS_VISUALS_DIR
 
+# Create necessary directories
 Path("working").mkdir(parents=True, exist_ok=True)
 Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True, exist_ok=True)
 Path(app.config['LEAF_VISUALS_DIR']).mkdir(parents=True, exist_ok=True)
 Path(app.config['ANALYSIS_VISUALS_DIR']).mkdir(parents=True, exist_ok=True)
 
+
 # ==========================================================
-# 3. Feature stats
+# FEATURE STATS (From your script)
 # ==========================================================
 feature_stats = {
     "junctions":   {"mean": 1989.9, "sd": 1165.210869, "min": 460, "max": 6365},
@@ -45,7 +53,7 @@ feature_stats = {
 }
 
 # ==========================================================
-# 4. Helper functions
+# HYBRID BIOHASH FUNCTIONS (From your script)
 # ==========================================================
 def file_seed_from_path(file_path):
     h = hashlib.sha256()
@@ -59,13 +67,12 @@ def file_seed_from_path(file_path):
     return int.from_bytes(digest[:8], 'big', signed=False)
 
 def generate_synthetic_features(stats, seed):
-    random.seed(seed)
-    np.random.seed(seed & 0xFFFFFFFF)
+    rng = np.random.default_rng(seed)
     features = {}
-    for key, vals in stats.items():
-        val = np.random.normal(vals["mean"], vals["sd"] * 0.1)
-        val = np.clip(val, vals["min"], vals["max"])
-        features[key] = round(float(val), 5)
+    for feature, vals in stats.items():
+        val = rng.normal(vals["mean"], vals["sd"])
+        val = float(np.clip(val, vals["min"], vals["max"]))
+        features[feature] = round(val, 5)
     return features
 
 def generate_bio_key(features):
@@ -87,70 +94,85 @@ def compute_hmac_file(file_path, hybrid_hash):
             h.update(chunk)
     return h.hexdigest()
 
+# ==========================================================
+# DATABASE HELPER FUNCTIONS
+# ==========================================================
 def load_database():
     if os.path.exists(DATABASE_FILE):
         with open(DATABASE_FILE, "r") as f:
-            try: return json.load(f)
-            except: return []
+            try:
+                return json.load(f)
+            except:
+                return []
     return []
 
 def save_database(data):
     with open(DATABASE_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
+# ==========================================================
+# NEW: LEAF VEIN VISUALIZATION FUNCTION (From your script)
+# ==========================================================
+import numpy as np
+from PIL import Image, ImageDraw
+import math, random
+
 def visualize_leaf_features(features, size=(512,512)):
-    img = Image.new("RGB", size, (255, 255, 255))
-    draw = ImageDraw.Draw(img)
     w, h = size
-    mid_x = w // 2
-    mid_y = h // 2
+    img = Image.new("RGB", size, (255,255,255))
+    draw = ImageDraw.Draw(img)
 
-    base_green = int(120 + (features["fft_mean"] - 5.4) * 80)
-    color = (max(0, min(60, base_green)), min(180, base_green + 60), max(0, base_green - 20))
+    # Leaf contour mask (Chorchorus-like)
+    center = (w//2, h//2)
+    leaf_width, leaf_height = w*0.8, h*0.95
 
-    outline_pts = []
-    for y in range(h // 6, h - h // 6, 4):
-        rel = (y - h/2) / (h/2)
-        width = (1 - abs(rel)**1.8) * (w * 0.35 + features["avg_distance"] * 30)
-        outline_pts.append((mid_x - width, y))
-    for y in reversed(range(h // 6, h - h // 6, 4)):
-        rel = (y - h/2) / (h/2)
-        width = (1 - abs(rel)**1.8) * (w * 0.35 + features["avg_distance"] * 30)
-        outline_pts.append((mid_x + width, y))
-    draw.polygon(outline_pts, fill=color, outline=(20,80,20))
+    def in_leaf(x, y):
+        # ellipse-like boundary check
+        nx = (x-center[0])/(leaf_width/2)
+        ny = (y-center[1])/(leaf_height/2)
+        return nx**2 + ny**2 <= 1.0
 
-    draw.line([(mid_x, h*0.1), (mid_x, h*0.9)], fill=(30,90,30), width=5)
+    # Feature mapping
+    num_nodes = int(features['junctions'] * 0.1)  # scaled down for visualization
+    max_branches = int(features['endpoints'] * 0.05)
+    fractality = int(features['fractal_dim'] * 3)
+    spread = np.clip(features['avg_distance'] * 50, 20, 80)
+    angle_var = np.clip(features['avg_angle'], 10, 40)
+    energy = np.clip(features['fft_energy']/1e8, 1, 10)
 
-    n_veins = int(5 + (features["junctions"] / 800))
-    spread = int(10 + features["avg_angle"])
-    for i in range(n_veins):
-        y_start = int(h * (0.15 + (i / n_veins) * 0.7))
-        angle = np.radians(spread * ((i % 2) * 2 - 1))
-        length = w * 0.25 + (features["avg_distance"] * 100)
-        x_end = int(mid_x + np.sign(angle) * length * np.cos(abs(angle)))
-        y_end = int(y_start - length * np.sin(abs(angle)))
-        draw.line([(mid_x, y_start), (x_end, y_end)], fill=(40,100,40), width=2)
+    # Midrib
+    mid_x = w//2
+    draw.line([(mid_x, h*0.1), (mid_x, h*0.9)], fill=(20,100,40), width=2)
 
-        sub_count = int(features["endpoints"] / 1500)
-        for j in range(sub_count):
-            frac = 0.2 + 0.6 * (j / sub_count)
-            sx = mid_x + np.sign(angle) * length * frac * np.cos(abs(angle))
-            sy = y_start - length * frac * np.sin(abs(angle))
-            sub_angle = angle * 0.5 + (j - sub_count/2) * 0.05
-            sub_len = length * 0.3
-            ex = sx + np.sign(angle) * sub_len * np.cos(sub_angle)
-            ey = sy - sub_len * np.sin(sub_angle)
-            draw.line([(sx, sy), (ex, ey)], fill=(50,120,50), width=1)
+    # Seed nodes
+    nodes = [(mid_x, h*0.5, -90)]
+    all_segments = []
 
-    np.random.seed(int(features["fractal_dim"] * 1000))
-    for _ in range(int(200 * (features["fractal_dim"] - 1.2))):
-        x = np.random.randint(mid_x - w//4, mid_x + w//4)
-        y = np.random.randint(h//6, h - h//6)
-        draw.point((x, y), fill=(25,90,25))
+    for _ in range(num_nodes):
+        if not nodes: break
+        x, y, base_angle = nodes.pop(0)
+        for _ in range(random.randint(1, fractality)):
+            angle = base_angle + random.uniform(-angle_var, angle_var)
+            dist = random.uniform(spread*0.5, spread*1.5)
+            x2 = x + dist*math.cos(math.radians(angle))
+            y2 = y + dist*math.sin(math.radians(angle))
+            if in_leaf(x2,y2):
+                draw.line([(x,y),(x2,y2)], fill=(20,120,40), width=random.randint(1,3))
+                all_segments.append(((x,y),(x2,y2)))
+                if len(nodes) < max_branches:
+                    nodes.append((x2,y2,angle + random.uniform(-10,10)))
 
     return img
 
+
+# ==========================================================
+# NEW: LEAF ANALYSIS FUNCTION (Adapted from your script)
+# ==========================================================
 def analyze_leaf_visual(leaf_img, paths):
+    """
+    Runs analysis on a leaf PIL image and saves results to specified paths.
+    'paths' is a dict: {'fractal': path, 'skeleton': path, 'dft': path}
+    """
     img_rgb = np.array(leaf_img.convert("RGB"))
     gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
 
@@ -159,45 +181,115 @@ def analyze_leaf_visual(leaf_img, paths):
     binary = morphology.remove_small_objects(binary, 60)
     binary = morphology.remove_small_holes(binary, 60)
 
-    # Fractal box counting
+    # ---- Fractal (box counting) ----
+    def compute_box_counts(binary, sizes):
+        counts = []
+        for k in sizes:
+            k = int(k)
+            if k == 0: continue
+            H = (binary.shape[0] // k) * k
+            W = (binary.shape[1] // k) * k
+            if H == 0 or W == 0: continue
+            Z = binary[:H,:W].astype(int)
+            S = np.add.reduceat(np.add.reduceat(Z, np.arange(0,H,k), axis=0), np.arange(0,W,k), axis=1)
+            counts.append(float(np.count_nonzero(S)))
+        return np.array(counts)
+
     min_side = min(binary.shape)
     sizes = [min_side//(2**i) for i in range(1,5) if min_side//(2**i) > 0]
     if not sizes: sizes = [1]
-
-    counts = []
-    for k in sizes:
-        H, W = (binary.shape[0]//k)*k, (binary.shape[1]//k)*k
-        Z = binary[:H,:W].astype(int)
-        S = np.add.reduceat(np.add.reduceat(Z, np.arange(0,H,k), axis=0), np.arange(0,W,k), axis=1)
-        counts.append(float(np.count_nonzero(S)))
-
+        
+    counts = compute_box_counts(binary, sizes)
     if len(counts) > 1:
         logs = np.log(np.array(sizes))
-        logn = np.log(np.array(counts) + 1e-9)
+        logn = np.log(counts + 1e-9)
         coeffs = np.polyfit(logs, logn, 1)
         D = -coeffs[0]
     else:
-        D = 0
+        D = 0 # Not enough data for fit
+
+    fig, axes = plt.subplots(1,4, figsize=(12,3))
+    for i in range(4):
+        if i < len(sizes):
+            s, c = sizes[i], counts[i]
+            ax = axes[i]
+            H, W = (binary.shape[0] // s) * s, (binary.shape[1] // s) * s
+            img = img_rgb.copy().astype(np.float32)/255.0
+            for y in range(0, H, s): cv2.line(img, (0,y), (W,y), (0,0,0), 1)
+            for x in range(0, W, s): cv2.line(img, (x,0), (x,H), (0,0,0), 1)
+            ax.imshow(img)
+            ax.set_title(f"Box={s}px\nN={int(c)}")
+        else:
+            axes[i].set_visible(False)
+        ax.axis('off')
+    fig.suptitle(f"Fractal Box-Counting (D ≈ {D:.3f})")
+    plt.tight_layout()
+    plt.savefig(paths['fractal'], dpi=100)
+    plt.close(fig)
+
+    # ---- Skeleton & nodes ----
+    skel = morphology.skeletonize(binary)
+    kernel = np.ones((3,3))
+    neighbors = ndi.convolve(skel.astype(int), kernel, mode='constant') - skel
+    endpoints = (skel & (neighbors==1))
+    junctions = (skel & (neighbors>=3))
+    yj,xj = np.nonzero(junctions)
+    ye,xe = np.nonzero(endpoints)
+    fig2, ax2 = plt.subplots(figsize=(6,6))
+    ax2.imshow(img_rgb)
+    ax2.scatter(xj,yj, c='red', s=15, label='junction')
+    ax2.scatter(xe,ye, c='cyan', s=10, label='endpoint')
+    ax2.legend()
+    ax2.set_title("Skeleton + Nodes")
+    ax2.axis('off')
+    plt.tight_layout()
+    plt.savefig(paths['skeleton'], dpi=100)
+    plt.close(fig2)
+
+    # ---- 2D DFT ----
+    F = np.fft.fftshift(np.fft.fft2(gray))
+    mag = np.log1p(np.abs(F))
+    mag = (mag - mag.min()) / (mag.max() - mag.min() + 1e-9)
+    plt.figure(figsize=(5,4))
+    plt.imshow(mag, cmap='inferno')
+    plt.title("2D DFT (log-magnitude)")
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(paths['dft'], dpi=100)
+    plt.close()
 
     return {"fractal_dim": D}
 
+# ==========================================================
+# NEW: HELPER FOR GENERATING VISUALS
+# ==========================================================
 def generate_all_visuals(features, filename, suffix=""):
+    """
+    Generates all visuals for a set of features and saves them.
+    Returns a dict of their *web-accessible* paths.
+    """
+    # Create filenames
     leaf_file = f"{filename}_leaf{suffix}.png"
     fractal_file = f"{filename}_fractal{suffix}.png"
     skeleton_file = f"{filename}_skeleton{suffix}.png"
     dft_file = f"{filename}_dft{suffix}.png"
-
+    
+    # Define *full disk paths* for saving
     leaf_save_path = os.path.join(app.config['LEAF_VISUALS_DIR'], leaf_file)
     analysis_save_paths = {
         "fractal": os.path.join(app.config['ANALYSIS_VISUALS_DIR'], fractal_file),
         "skeleton": os.path.join(app.config['ANALYSIS_VISUALS_DIR'], skeleton_file),
         "dft": os.path.join(app.config['ANALYSIS_VISUALS_DIR'], dft_file),
     }
-
+    
+    # Generate and save leaf
     leaf_img = visualize_leaf_features(features)
     leaf_img.save(leaf_save_path)
+    
+    # Generate and save analysis images
     analyze_leaf_visual(leaf_img, analysis_save_paths)
-
+    
+    # Return *web paths* (relative to 'static' folder)
     return {
         "leaf": f"{app.config['LEAF_VISUALS_DIR']}/{leaf_file}",
         "fractal": f"{app.config['ANALYSIS_VISUALS_DIR']}/{fractal_file}",
@@ -206,87 +298,148 @@ def generate_all_visuals(features, filename, suffix=""):
     }
 
 # ==========================================================
-# 5. Flask routes
+# FLASK ROUTES (Updated)
 # ==========================================================
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/register', methods=['POST'])
 def register_image():
-    if 'file' not in request.files or request.files['file'].filename == '':
+    if 'file' not in request.files:
+        return render_template('result.html', message="No file selected.", status="danger")
+    file = request.files['file']
+    if file.filename == '':
         return render_template('result.html', message="No file selected.", status="danger")
 
-    file = request.files['file']
-    filename = secure_filename(file.filename)
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(file_path)
+    if file:
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
 
-    db = load_database()
-    if any(r["file_name"] == filename for r in db):
-        return render_template('result.html', message=f"File '{filename}' already registered.", status="warning")
+        assignments = load_database()
+        record = next((r for r in assignments if r["file_name"] == filename), None)
 
-    seed = file_seed_from_path(file_path)
-    features = generate_synthetic_features(feature_stats, seed)
-    bio_key, _ = generate_bio_key(features)
-    hybrid_hash, salt = generate_hybrid_hash(bio_key)
-    file_hmac = compute_hmac_file(file_path, hybrid_hash)
-    visuals = generate_all_visuals(features, filename, suffix="_stored")
+        if record is not None:
+            return render_template('result.html', 
+                                   message=f"Error: File '{filename}' is already registered.", 
+                                   status="warning", 
+                                   record=record)
+        
+        # --- Run registration algorithm ---
+        seed = file_seed_from_path(file_path)
+        features = generate_synthetic_features(feature_stats, seed)
+        bio_key, _ = generate_bio_key(features)
+        hybrid_hash, salt = generate_hybrid_hash(bio_key)
+        file_hmac = compute_hmac_file(file_path, hybrid_hash)
 
-    record = {
-        "file_name": filename,
-        "file_path": file_path,
-        "features": features,
-        "bio_key": bio_key,
-        "salt": salt,
-        "hybrid_hash": hybrid_hash,
-        "hmac": file_hmac,
-        "visuals": visuals
+        # --- NEW: Generate and save visuals ---
+        visual_paths = generate_all_visuals(features, filename, suffix="_stored")
+
+        record = {
+    "file_name": filename,
+    "file_path": file_path,
+    "seed": seed,  # <--- ADD THIS
+    "features": features,
+    "bio_key": bio_key,
+    "salt": salt,
+    "hybrid_hash": hybrid_hash,
+    "hmac": file_hmac,
+    "visuals": visual_paths
     }
-    db.append(record)
-    save_database(db)
 
-    return render_template('result.html', message=f"File '{filename}' registered successfully!", status="success", record=record, stored_visuals=visuals)
+        assignments.append(record)
+        save_database(assignments)
+        
+        return render_template('result.html', 
+                               message=f"File '{filename}' registered successfully!", 
+                               status="success", 
+                               record=record,
+                               stored_visuals=visual_paths)
+    
+    return redirect(url_for('index'))
+
 
 @app.route('/verify', methods=['POST'])
 def verify_image():
-    if 'file' not in request.files or request.files['file'].filename == '':
+    if 'file' not in request.files:
+        return render_template('result.html', message="No file selected.", status="danger")
+    file = request.files['file']
+    if file.filename == '':
         return render_template('result.html', message="No file selected.", status="danger")
 
-    file = request.files['file']
-    filename = secure_filename(file.filename)
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(file_path)
+    if file:
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
 
-    db = load_database()
-    record = next((r for r in db if r["file_name"] == filename), None)
-    if record is None:
-        return render_template('result.html', message=f"File '{filename}' not found.", status="danger")
+        assignments = load_database()
+        record = next((r for r in assignments if r["file_name"] == filename), None)
 
-    # HMAC and bio_key checks
-    new_hmac = compute_hmac_file(file_path, record["hybrid_hash"])
-    new_seed = file_seed_from_path(file_path)
+        if record is None:
+            return render_template('result.html', 
+                                   message=f"Error: File '{filename}' not found in database.", 
+                                   status="danger")
+        
+        # === VERIFICATION LOGIC ===
+        
+        # 1. Get stored "golden record" values
+        stored_bio_key = record["bio_key"]
+        stored_hybrid_hash = record["hybrid_hash"]
+        stored_hmac = record["hmac"]
+        stored_visuals = record.get("visuals", {}) # Get stored visual paths
+        
+        # --- Check 1: HMAC Integrity Check ---
+        new_hmac_for_integrity = compute_hmac_file(file_path, stored_hybrid_hash)
+        is_hmac_match = (new_hmac_for_integrity == stored_hmac)
+        
+        # --- Check 2: Biometric Key Check (and generate new visuals) ---
+       # Use the same seed from the registered file to keep visuals consistent
+stored_seed = record.get("seed")
+new_seed = file_seed_from_path(file_path)
+
+# If untampered, using the stored seed should reproduce the same visuals
+if stored_seed is not None:
+    new_features = generate_synthetic_features(feature_stats, stored_seed)
+else:
     new_features = generate_synthetic_features(feature_stats, new_seed)
-    new_bio_key, _ = generate_bio_key(new_features)
-    visuals_uploaded = generate_all_visuals(new_features, filename, suffix="_uploaded")
 
-    is_hmac_match = (new_hmac == record["hmac"])
-    is_biokey_match = (new_bio_key == record["bio_key"])
+        new_bio_key, _ = generate_bio_key(new_features)
+        is_biokey_match = (new_bio_key == stored_bio_key)
 
-    status = "success" if is_hmac_match and is_biokey_match else "danger"
-    message = "VERIFIED: HMAC and Biometric Key match." if status=="success" else "TAMPERED! File data does not match the registered record."
+        # --- NEW: Generate visuals for the UPLOADED file ---
+        uploaded_visuals = generate_all_visuals(new_features, filename, suffix="_uploaded")
 
-    return render_template('result.html', message=message, status=status, record=record, check_results={
-        "new_hmac": new_hmac,
-        "is_hmac_match": is_hmac_match,
-        "new_bio_key": new_bio_key,
-        "is_biokey_match": is_biokey_match,
-        "new_features": new_features
-    }, stored_visuals=record.get("visuals", {}), uploaded_visuals=visuals_uploaded)
+        # --- Set final status ---
+        if is_hmac_match and is_biokey_match:
+            message = f"VERIFIED: HMAC and Biometric Key match."
+            status = "success"
+        else:
+            message = f"TAMPERED! File data does not match the registered record."
+            status = "danger"
+            
+        return render_template('result.html', 
+                               message=message, 
+                               status=status, 
+                               record=record,
+                               check_results={
+                                   "new_hmac": new_hmac_for_integrity,
+                                   "is_hmac_match": is_hmac_match,
+                                   "new_bio_key": new_bio_key,
+                                   "is_biokey_match": is_biokey_match,
+                                   "new_features": new_features
+                               },
+                               stored_visuals=stored_visuals,
+                               uploaded_visuals=uploaded_visuals
+                               )
+    
+    return redirect(url_for('index'))
 
-# ==========================================================
-# 6. Run server
-# ==========================================================
+
 if __name__ == '__main__':
+    app.run(debug=True)
+if __name__ == '__main__':
+    import os
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port)
