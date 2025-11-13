@@ -120,42 +120,72 @@ def save_database(data):
 import math, random
 
 def visualize_leaf_features(features, size=(512, 512)):
+    import math, random
     w, h = size
     img = Image.new("RGB", size, (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
-    center = (w // 2, h // 2)
-    leaf_width, leaf_height = w * 0.8, h * 0.95
+    # Define center and leaf boundary
+    center_x, center_y = w // 2, h // 2
+    leaf_width = w * 0.8
+    leaf_height = h * 0.95
 
     def in_leaf(x, y):
-        nx = (x - center[0]) / (leaf_width / 2)
-        ny = (y - center[1]) / (leaf_height / 2)
+        """Check if point lies within elliptical leaf boundary"""
+        nx = (x - center_x) / (leaf_width / 2)
+        ny = (y - center_y) / (leaf_height / 2)
         return nx**2 + ny**2 <= 1.0
 
-    num_nodes = int(features['junctions'] * 0.1)
-    max_branches = int(features['endpoints'] * 0.05)
-    fractality = int(features['fractal_dim'] * 3)
-    spread = np.clip(features['avg_distance'] * 50, 20, 80)
-    angle_var = np.clip(features['avg_angle'], 10, 40)
+    # Map feature values to structural parameters
+    junctions = int(np.interp(features["junctions"], [460, 6365], [40, 300]))
+    endpoints = int(np.interp(features["endpoints"], [1876, 8642], [60, 350]))
+    fractality = int(np.interp(features["fractal_dim"], [1.295, 1.68], [2, 6]))
+    spread = np.interp(features["avg_distance"], [1.1752, 1.2114], [20, 80])
+    angle_var = np.interp(features["avg_angle"], [0.4588, 31.9622], [5, 45])
+    thickness = int(np.interp(features["fft_energy"], 
+                              [9.35e7, 3.79e8], [1, 4]))
 
+    # Draw main midrib (stem)
     mid_x = w // 2
-    draw.line([(mid_x, h * 0.1), (mid_x, h * 0.9)], fill=(20, 100, 40), width=2)
+    draw.line([(mid_x, h * 0.1), (mid_x, h * 0.9)], fill=(20, 100, 40), width=thickness + 1)
 
+    # Start branching from central vein
     nodes = [(mid_x, h * 0.5, -90)]
+    total_drawn = 0
 
-    for _ in range(num_nodes):
-        if not nodes:
-            break
+    while nodes and total_drawn < junctions:
         x, y, base_angle = nodes.pop(0)
-        for _ in range(random.randint(1, fractality)):
+        branches = random.randint(1, fractality)
+        for _ in range(branches):
+            # Adjust angle and length with avg_angle and avg_distance
             angle = base_angle + random.uniform(-angle_var, angle_var)
             dist = random.uniform(spread * 0.5, spread * 1.5)
             x2 = x + dist * math.cos(math.radians(angle))
             y2 = y + dist * math.sin(math.radians(angle))
+
             if in_leaf(x2, y2):
-                draw.line([(x, y), (x2, y2)], fill=(20, 120, 40), width=random.randint(1, 3))
-                if len(nodes) < max_branches:
+                color = (20 + random.randint(-10, 10), 120, 40 + random.randint(-10, 10))
+                draw.line([(x, y), (x2, y2)], fill=color, width=random.randint(1, thickness + 1))
+                if total_drawn < endpoints:
                     nodes.append((x2, y2, angle + random.uniform(-10, 10)))
+                total_drawn += 1
+
+    # Optional: add light texture based on FFT mean
+    noise_strength = np.interp(features["fft_mean"], [5.24, 5.76], [0.02, 0.08])
+    pixels = img.load()
+    for i in range(0, w, 2):
+        for j in range(0, h, 2):
+            if in_leaf(i, j) and random.random() < noise_strength:
+                r, g, b = pixels[i, j]
+                pixels[i, j] = (max(0, r - 10), min(255, g + 10), max(0, b - 10))
+
+    # Optional: add leaf contour for realism
+    contour_color = (25, 80, 25)
+    for angle in range(0, 360, 1):
+        x = center_x + (leaf_width / 2) * math.cos(math.radians(angle))
+        y = center_y + (leaf_height / 2) * math.sin(math.radians(angle))
+        if 0 <= x < w and 0 <= y < h:
+            img.putpixel((int(x), int(y)), contour_color)
 
     return img
 
