@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Result</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .status-pass { color: #155724; font-weight: bold; }
+    .status-fail { color: #721c24; font-weight: bold; }
+    .visual-comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2em;
+      margin-top: 2em;
+    }
+    .visual-column h3 { text-align: center; font-weight: 500; color: #333; border-bottom: 2px solid #e6e6e6; padding-bottom: 0.5em; }
+    .analysis-image { width: 100%; border: 1px solid #e6e6e6; border-radius: 6px; margin-bottom: 1em; }
+    .analysis-image-container { background-color: #fff; padding: 1em; border: 1px solid #eee; border-radius: 6px; margin-bottom: 1.5em; }
+    .analysis-image-container p { text-align: center; font-weight: 600; color: #666; margin: 0 0 0.5em 0; }
+    .hint { background:#f7fdf7; border-left:4px solid #cce6cc; padding:8px 12px; margin-top:12px; border-radius:4px;}
+    .features-list { columns: 2; -webkit-columns: 2; -moz-columns: 2; list-style: none; padding: 0; margin: 0; }
+    .features-list li { padding: 4px 0; }
+    @media (max-width: 768px) {
+      .visual-comparison { grid-template-columns: 1fr; }
+      .features-list { columns: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>Verification Result</h1>
+    </header>
+
+    <div class="card">
+      {% if message %}
+      <div class="result-message status-{{ status | default('warning') }}">
+        {{ message }}
+      </div>
+      {% endif %}
+
+      {% if check_results %}
+      <div class="record-details">
+        <h3>Verification Checks</h3>
+
+        <div class="record-item">
+          <span class="record-label">HMAC Integrity Check</span>
+          <span class="record-value {% if check_results.is_hmac_match %}status-pass{% else %}status-fail{% endif %}">
+            {% if check_results.is_hmac_match %}PASS{% else %}FAIL{% endif %}
+          </span>
+        </div>
+
+        <div class="record-item" style="padding-left: 20px;">
+          <span class="record-label">Stored HMAC</span>
+          <span class="record-value">{{ record.hmac }}</span>
+        </div>
+        <div class="record-item" style="padding-left: 20px;">
+          <span class="record-label">Uploaded HMAC</span>
+          <span class="record-value">{{ check_results.new_hmac }}</span>
+        </div>
+
+        <div class="record-item">
+          <span class="record-label">Biometric Key Check</span>
+          <span class="record-value {% if check_results.is_biokey_match %}status-pass{% else %}status-fail{% endif %}">
+            {% if check_results.is_biokey_match %}PASS{% else %}FAIL{% endif %}
+          </span>
+        </div>
+
+        <div class="record-item" style="padding-left: 20px;">
+          <span class="record-label">Stored Bio-Key</span>
+          <span class="record-value">{{ record.bio_key }}</span>
+        </div>
+        <div class="record-item" style="padding-left: 20px;">
+          <span class="record-label">Uploaded Bio-Key</span>
+          <span class="record-value">{{ check_results.new_bio_key }}</span>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if stored_visuals and uploaded_visuals %}
+      <div class="visual-comparison">
+        <div class="visual-column">
+          <h3>Stored Record Visuals</h3>
+          <div class="analysis-image-container">
+            <p>Leaf Pattern</p>
+            <img src="{{ url_for('static', filename=stored_visuals.leaf.replace('static/', '')) }}" alt="Stored Leaf Pattern" class="analysis-image">
+          </div>
+          <div class="analysis-image-container">
+            <p>Fractal Analysis</p>
+            <img src="{{ url_for('static', filename=stored_visuals.fractal.replace('static/', '')) }}" alt="Stored Fractal Analysis" class="analysis-image">
+          </div>
+          <div class="analysis-image-container">
+            <p>Skeleton Analysis</p>
+            <img src="{{ url_for('static', filename=stored_visuals.skeleton.replace('static/', '')) }}" alt="Stored Skeleton Analysis" class="analysis-image">
+          </div>
+          <div class="analysis-image-container">
+            <p>DFT Analysis</p>
+            <img src="{{ url_for('static', filename=stored_visuals.dft.replace('static/', '')) }}" alt="Stored DFT Analysis" class="analysis-image">
+          </div>
+        </div>
+
+        <div class="visual-column">
+          <h3>Uploaded File Visuals</h3>
+          <div class="analysis-image-container">
+            <p>Leaf Pattern</p>
+            <img src="{{ url_for('static', filename=uploaded_visuals.leaf.replace('static/', '')) }}" alt="Uploaded Leaf Pattern" class="analysis-image">
+          </div>
+          <div class="analysis-image-container">
+            <p>Fractal Analysis</p>
+            <img src="{{ url_for('static', filename=uploaded_visuals.fractal.replace('static/', '')) }}" alt="Uploaded Fractal Analysis" class="analysis-image">
+          </div>
+          <div class="analysis-image-container">
+            <p>Skeleton Analysis</p>
+            <img src="{{ url_for('static', filename=uploaded_visuals.skeleton.replace('static/', '')) }}" alt="Uploaded Skeleton Analysis" class="analysis-image">
+          </div>
+          <div class="analysis-image-container">
+            <p>DFT Analysis</p>
+            <img src="{{ url_for('static', filename=uploaded_visuals.dft.replace('static/', '')) }}" alt="Uploaded DFT Analysis" class="analysis-image">
+          </div>
+        </div>
+      </div>
+      {% elif stored_visuals %}
+      <div class="visual-comparison" style="grid-template-columns: 1fr;">
+        <div class="visual-column">
+          <h3>Registered Visuals</h3>
+          <div class="analysis-image-container">
+            <p>Leaf Pattern</p>
+            <img src="{{ url_for('static', filename=stored_visuals.leaf.replace('static/', '')) }}" alt="Stored Leaf Pattern" class="analysis-image">
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if diagnostics %}
+      <div style="margin-top: 1.5em;">
+        <h3>Diagnostics</h3>
+        {% if diagnostics.significant %}
+          <p>Significant feature changes detected:</p>
+          <ul>
+            {% for s in diagnostics.significant %}
+              <li><strong>{{ s.feature }}</strong> — stored: {{ s.stored }}, new: {{ s.new }}, diff: {{ s.diff }}, z: {{ s.z }}, pct: {{ s.pct }}%</li>
+            {% endfor %}
+          </ul>
+          {% for h in diagnostics.hints %}
+            <div class="hint">{{ h }}</div>
+          {% endfor %}
+        {% else %}
+          <p>No significant feature changes detected.</p>
+          {% for h in diagnostics.hints %}
+            <div class="hint">{{ h }}</div>
+          {% endfor %}
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if record %}
+      <div class="record-details" style="margin-top: 2em;">
+        <h3>Stored Database Record</h3>
+        <div class="record-item">
+          <span class="record-label">File:</span>
+          <span class="record-value">{{ record.file_name }}</span>
+        </div>
+        <div class="record-item">
+          <span class="record-label">Stored Features:</span>
+          <div class="record-value">
+            <ul class="features-list">
+              {% for key, val in record.features.items() %}
+                <li><strong>{{ key }}:</strong> <span>{{ val }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <a href="/" class="btn btn-secondary" style="margin-top: 2em; display:inline-block;">Go Back Home</a>
+    </div>
+  </div>
+</body>
+</html>
