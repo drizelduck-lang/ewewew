@@ -160,7 +160,7 @@ def visualize_leaf_features(features, size=(512,512)):
             
             sub_count = rng.integers(2, 5)
             for _ in range(sub_count):
-                frac = rng.uniform(0.2, 0.😎
+                frac = rng.uniform(0.2, 0.8)
                 sx = mid_x + side * length * frac * np.cos(np.radians(angle_deg))
                 sy = y_start - length * frac * np.sin(np.radians(angle_deg))
                 sub_angle = angle_deg + rng.normal(20, 10) * rng.choice([-1, 1])
