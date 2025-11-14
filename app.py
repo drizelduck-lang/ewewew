@@ -572,7 +572,7 @@ def download_report(fname):
 # RUN SERVER
 # ==========================================================
 if _name_ == '_main_':
-    # ensure directories exist
+    app.run(debug=True)
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['LEAF_VISUALS_DIR'], exist_ok=True)
     os.makedirs(app.config['ANALYSIS_VISUALS_DIR'], exist_ok=True)
