@@ -28,7 +28,7 @@ LEAF_VISUALS_DIR = "static/leaf_visuals"
 ANALYSIS_VISUALS_DIR = "static/analysis_visuals"
 REPORTS_DIR = "working/reports"
 
-app = Flask(_name_)
+app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['LEAF_VISUALS_DIR'] = LEAF_VISUALS_DIR
 app.config['ANALYSIS_VISUALS_DIR'] = ANALYSIS_VISUALS_DIR
@@ -571,7 +571,7 @@ def download_report(fname):
 # ==========================================================
 # RUN SERVER
 # ==========================================================
-if _name_ == '_main_':
+if __name__ == '_main_':
     app.run(debug=True)
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['LEAF_VISUALS_DIR'], exist_ok=True)
