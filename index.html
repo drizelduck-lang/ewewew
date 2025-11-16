@@ -1,49 +1,69 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hybrid BioHash Service</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hybrid BioHash Service</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <div class="page-wrap">
-    <header class="site-header">
-      <h1>Hybrid BioHash Service</h1>
-      <p class="tagline">Register a file to create a deterministic biohash visual, then verify integrity later.</p>
+    <div class="container">
+        <header class="header">
+    <div class="title-with-logo">
+        <img src="{{ url_for('static', filename='PHYTOCRYPT LOGO (PLAIN) (1).png') }}" alt="Logo" class="logo">
+        <h1>PhytoCrypt</h1>
+    </div>
     </header>
 
-    <main class="card">
-      <section>
-        <h2>Register a file</h2>
-        <form action="{{ url_for('register_image') }}" method="post" enctype="multipart/form-data">
-          <div class="form-row">
-            <input type="file" name="file" required>
-          </div>
-          <div class="form-row">
-            <button class="btn btn-primary" type="submit">Register</button>
-          </div>
-        </form>
-      </section>
+        
+        <div style="text-align: center; margin-bottom: 2em; font-size: 1.1em;">
+            <a href="/list_items" class="btn btn-secondary" style="margin-top: 2em;">List of All Registered Items</a>
+        </div>
+        
+        <div class="grid-container">
+            <div class="card">
+                <h2>Register New File</h2>
+                <p>Upload an original file to generate and store its secure BioHash record.</p>
+                <form action="/register" method="POST" enctype="multipart/form-data">
+                    
+                    <div class="file-upload-wrapper">
+                        <label for="file-register" class="file-label">Choose a file...</label>
+                        <span id="file-name-register" class="file-name">No file selected</span>
+                        <input type="file" name="file" id="file-register" required 
+                               onchange="updateFileName(this, 'file-name-register')">
+                    </div>
 
-      <hr>
+                    <button type="submit" class="btn btn-primary">Register file</button>
+                </form>
+            </div>
+            
+            <div class="card">
+                <h2>Verify file</h2>
+                <p>Upload a file to check its integrity against its registered record.</p>
+                <form action="/verify" method="POST" enctype="multipart/form-data">
 
-      <section>
-        <h2>Verify a file</h2>
-        <form action="{{ url_for('verify_image') }}" method="post" enctype="multipart/form-data">
-          <div class="form-row">
-            <input type="file" name="file" required>
-          </div>
-          <div class="form-row">
-            <button class="btn btn-secondary" type="submit">Verify</button>
-          </div>
-        </form>
-      </section>
-    </main>
+                    <div class="file-upload-wrapper">
+                        <label for="file-verify" class="file-label">Choose an image...</label>
+                        <span id="file-name-verify" class="file-name">No file selected</span>
+                        <input type="file" name="file" id="file-verify" required
+                               onchange="updateFileName(this, 'file-name-verify')">
+                    </div>
 
-    <footer class="site-footer">
-      <p>Tip: visuals are deterministic for a given file — the generated leaf image contains an embedded short code (hybrid hash prefix).</p>
-    </footer>
-  </div>
+                    <button type="submit" class="btn btn-secondary">Verify file</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateFileName(input, labelId) {
+            const label = document.getElementById(labelId);
+            if (input.files && input.files.length > 0) {
+                label.textContent = input.files[0].name;
+            } else {
+                label.textContent = 'No file selected';
+            }
+        }
+    </script>
 </body>
 </html>
